@@ -1,55 +1,92 @@
+/*
+Problem: Prime Number Finder
+
+Generate numbers from 1 to 1000.
+
+Launch multiple worker goroutines to check if a number is prime.
+
+Each worker sends the prime numbers it finds to a results channel.
+
+Collect all primes in the main goroutine and print them sorted.
+
+Constraints:
+
+Use channels to send numbers to workers and collect results.
+
+Use a WaitGroup to wait for all workers to finish.
+
+Make sure the main goroutine collects results without deadlocks.
+*/
+
 package main
 
 import (
+	"bufio"
 	"fmt"
-	"io"
-	"net/http"
+	"log"
+	"os"
+	"runtime"
+	"strconv"
 	"sync"
-	"time"
 )
 
-// So here, main go routine is writing to a channel and a child go routine is reading from it. Channels are blocking, it blocks the execution until someone on the other end is reading from it.
-// You can push to buffered channels until their limit even if none is reading.
-
-// Goal: Fetch the contents of multiple URLs concurrently and count the total number of bytes fetched.
 func main() {
-	startTime := time.Now()
+	// Get max number from user
+	fmt.Print("Enter the max number: ")
+	scanner := bufio.NewScanner(os.Stdin)
+	scanner.Scan()
+	maxNumber, err := strconv.Atoi(scanner.Text())
+	if err != nil {
+		log.Fatal("Invalid number")
+	}
+
+	numWorkers := runtime.NumCPU() * 30 // number of workers
+	jobs := make(chan int, 100)         // channel for numbers to check
+	results := make(chan int, 100)      // channel for primes
+
 	var wg sync.WaitGroup
 
-	urls := []string{
-		"https://seez.co",
-		"https://starmark.dk",
-		"https://nortonway.com",
-		"https://www.google.com",
-		"https://www.github.com",
-	}
-
-	resultChan := make(chan int, len(urls))
-	for _, item := range urls {
+	// Launch workers
+	for i := 0; i < numWorkers; i++ {
 		wg.Add(1)
-		go func(u string) {
-			defer wg.Done()
-			result := fetchContent(u)
-			resultChan <- result
-		}(item)
+		go worker(jobs, results, &wg)
 	}
-	wg.Wait()
-	close(resultChan)
 
-	sum := 0
-	for r := range resultChan {
-		sum += r
+	// Collector goroutine: closes results when workers are done
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+
+	// Send numbers to workers
+	for i := 1; i <= maxNumber; i++ {
+		jobs <- i
 	}
-	fmt.Println(sum)
-	endTime := time.Since(startTime)
-	fmt.Println("Total time taken: " + endTime.String())
+	close(jobs) // no more jobs
+
+	// Collect and print primes
+	for prime := range results {
+		fmt.Println(prime)
+	}
 }
 
-func fetchContent(url string) int {
-	if resp, err := http.Get(url); err == nil {
-		defer resp.Body.Close()
-		body, _ := io.ReadAll(resp.Body)
-		return len(body)
+func worker(inputChannel <-chan int, resultChannel chan<- int, wg *sync.WaitGroup) {
+	defer wg.Done()
+	for item := range inputChannel {
+		if resultItem := isPrime(item); resultItem {
+			resultChannel <- item
+		}
 	}
-	return 0
+}
+
+func isPrime(n int) bool {
+	if n <= 1 {
+		return false
+	}
+	for i := 2; i*i <= n; i++ {
+		if n%i == 0 {
+			return false
+		}
+	}
+	return true
 }
