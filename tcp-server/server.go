@@ -1,9 +1,11 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
 	"log"
 	"net"
+	"time"
 )
 
 /*
@@ -132,18 +134,11 @@ Do you want me to do that next?
 
 func main() {
 	fmt.Print("This is my chat server")
-	// This is the http server. Different from TCP. On top of TCP you can have FTP, SMTP, ssh etc. Without TCP http won't work.
-	// http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-	// 	request := *r
-
-	// 	fmt.Fprintf(w, "Hello %v", request)
-	// })
-	// http.ListenAndServe(":9000", nil)
-
 	tcp, err := net.Listen("tcp", ":9000")
 	if err != nil {
 		log.Fatal("Some error:", err)
 	}
+	defer tcp.Close()
 
 	for {
 		conn, err := tcp.Accept()
@@ -157,5 +152,28 @@ func main() {
 
 func HandleConnection(con net.Conn) {
 	defer con.Close()
-	con.Write([]byte("Nice one Arbaz"))
+	con.SetDeadline(time.Now().Add(15 * time.Second))
+	r := bufio.NewReader(con)
+	httpVerb, err := r.Peek(4) //When using nc command from terminal this operation blocks, because its waiting for the user to type something which is exactly 3 bytes in size.
+	if err == nil {
+		if string(httpVerb) == "GET" {
+			httpResponse := fmt.Sprintf(
+				"HTTP/1.1 200 OK\r\n"+
+					"Content-Type: text/plain\r\n"+
+					"Content-Length: %d\r\n"+
+					"\r\n"+
+					"%s",
+				len("Hello World"),
+				"Hello World",
+			)
+
+			_, err := con.Write([]byte(httpResponse))
+			if err != nil {
+				fmt.Printf("Error writing to connection: %v\n", err)
+			}
+			return
+		}
+		con.Write(httpVerb)
+	}
+
 }
