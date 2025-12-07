@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log"
 	"net"
-	"time"
 )
 
 /*
@@ -132,48 +131,57 @@ Do you want me to do that next?
 
 */
 
-func main() {
-	fmt.Print("This is my chat server")
-	tcp, err := net.Listen("tcp", ":9000")
-	if err != nil {
-		log.Fatal("Some error:", err)
-	}
-	defer tcp.Close()
+var (
+	join     = make(chan Client)
+	messages = make(chan string)
+)
 
+func main() {
+	tcpLine, err := net.Listen("tcp", ":9000")
+	if err != nil {
+		log.Fatal("Something wrong with the tcp connection")
+	}
+	defer tcpLine.Close()
+	go server()
 	for {
-		conn, err := tcp.Accept()
+		conn, err := tcpLine.Accept()
 		if err != nil {
 			continue
 		}
-		go HandleConnection(conn)
+		go handleConnection(conn)
 	}
 
 }
 
-func HandleConnection(con net.Conn) {
-	defer con.Close()
-	con.SetDeadline(time.Now().Add(15 * time.Second))
-	r := bufio.NewReader(con)
-	httpVerb, err := r.Peek(4) //When using nc command from terminal this operation blocks, because its waiting for the user to type something which is exactly 3 bytes in size.
-	if err == nil {
-		if string(httpVerb) == "GET" {
-			httpResponse := fmt.Sprintf(
-				"HTTP/1.1 200 OK\r\n"+
-					"Content-Type: text/plain\r\n"+
-					"Content-Length: %d\r\n"+
-					"\r\n"+
-					"%s",
-				len("Hello World"),
-				"Hello World",
-			)
-
-			_, err := con.Write([]byte(httpResponse))
-			if err != nil {
-				fmt.Printf("Error writing to connection: %v\n", err)
-			}
+func handleConnection(conn net.Conn) {
+	client := Client{id: conn.RemoteAddr().Network(), conn: conn}
+	join <- client
+	r := bufio.NewReader(conn)
+	for {
+		mssg, err := r.ReadString('\n')
+		if err != nil {
 			return
 		}
-		con.Write(httpVerb)
+		messages <- mssg
 	}
+}
 
+func server() {
+	clients := []Client{}
+	for {
+		select {
+		case client := <-join:
+			clients = append(clients, client)
+
+		case message := <-messages:
+			for _, c := range clients {
+				fmt.Fprint(c.conn, message)
+			}
+		}
+	}
+}
+
+type Client struct {
+	id   string
+	conn net.Conn
 }
